@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from proposals.api import router as proposal_router
 from PraposalReviewer.api import router as proposal_reviewer_router
 from ProposalReview.api import router as proposal_review_router
+from BudgetProposal.api import router as budget_proposal_router
 
 
 app = FastAPI()
@@ -30,3 +31,4 @@ app.include_router(user_router)
 app.include_router(proposal_router)
 app.include_router(proposal_reviewer_router)
 app.include_router(proposal_review_router)
+app.include_router(budget_proposal_router)

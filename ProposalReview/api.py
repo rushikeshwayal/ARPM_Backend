@@ -77,7 +77,7 @@ async def create_review(
         if payload.decision == "revise":
             proposal.status = "returned_to_draft"
 
-        elif payload.decision == "approve":   # ✅ FIXED
+        elif payload.decision == "approved":   # ✅ FIXED
             proposal.status = "submitted_to_reviewers"
 
     # ------------------------------
