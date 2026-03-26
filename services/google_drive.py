@@ -11,8 +11,8 @@ from google.oauth2.credentials import Credentials
 
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
-TOKEN_FILE = "D:/WEB/ARPM/Backend/drive/token.json"
-CREDENTIALS_FILE = "D:/WEB/ARPM/Backend/drive/client_secret_663335436804-629dolb8mt6ehcq6ssk9op65e7jemcjr.apps.googleusercontent.com.json"
+TOKEN_FILE = "drive/token.json"
+CREDENTIALS_FILE =  "drive/client_secret.json"
 
 def get_drive_service():
     try:
