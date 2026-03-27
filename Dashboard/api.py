@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func, case
+from sqlalchemy import func, case, true
 from typing import Optional
 from datetime import datetime
 
@@ -14,7 +14,7 @@ from proposals.models import Proposal, ProposalStatus
 from users.models import User
 from Dashboard.schema import PMDashboardResponse
 
-router = APIRouter(prefix="/dashboard", tags=["PM Dashboard"])
+router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 
 def _fmt_time(dt: Optional[datetime]) -> str:
@@ -28,9 +28,38 @@ def _fmt_time(dt: Optional[datetime]) -> str:
     return dt.strftime("%d %b")
 
 
-@router.get("/{pm_id}", response_model=PMDashboardResponse)
-async def get_pm_dashboard(pm_id: int, db: AsyncSession = Depends(get_db)):
+@router.get("/{user_id}", response_model=PMDashboardResponse)
+async def get_dashboard(
+    user_id: int,
+    role: str = Query(...),
+    db: AsyncSession = Depends(get_db)
+):
     try:
+
+        # ───────────── ROLE BASED FILTERS ─────────────
+        if role == "pm":
+            proposal_filter = Proposal.assigned_pm_id == user_id
+            project_filter = Project.project_manager_id == user_id
+
+        elif role == "investigator":
+            proposal_filter = Proposal.lead_researcher_id == user_id
+            project_filter = Project.lead_researcher_id == user_id
+
+        elif role == "reviewer":
+            proposal_filter = Proposal.status.in_([
+                ProposalStatus.submitted_to_reviewers,
+                ProposalStatus.review_completed
+            ])
+
+        
+            project_filter = Project.proposal_id.in_(
+                select(Proposal.id).where(proposal_filter)
+            )
+
+        else:  # admin
+            proposal_filter = true()
+            project_filter = true()
+
         # ── 1. Proposal Stats ─────────────────────────
         result = await db.execute(
             select(
@@ -46,7 +75,7 @@ async def get_pm_dashboard(pm_id: int, db: AsyncSession = Depends(get_db)):
                     ]), 1),
                     else_=0,
                 )).label("pending"),
-            ).where(Proposal.assigned_pm_id == pm_id)
+            ).where(proposal_filter)
         )
         pc = result.one()
 
@@ -57,12 +86,13 @@ async def get_pm_dashboard(pm_id: int, db: AsyncSession = Depends(get_db)):
                 func.sum(case((Project.status == "active", 1), else_=0)).label("active"),
                 func.sum(case((Project.status == "completed", 1), else_=0)).label("completed"),
                 func.sum(case((Project.status == "on_hold", 1), else_=0)).label("on_hold"),
-            ).where(Project.project_manager_id == pm_id)
+            ).where(project_filter)
         )
         prc = pr.one()
 
+        # ── Project IDs ──────────────────────────────
         proj_ids_q = await db.execute(
-            select(Project.id).where(Project.project_manager_id == pm_id)
+            select(Project.id).where(project_filter)
         )
         project_ids = [r[0] for r in proj_ids_q.all()]
 
@@ -89,7 +119,7 @@ async def get_pm_dashboard(pm_id: int, db: AsyncSession = Depends(get_db)):
         # ── 4. Recent Messages ──────────────────────
         msgs_q = await db.execute(
             select(Message)
-            .where(Message.receiver_id == pm_id)
+            .where(Message.receiver_id == user_id)
             .order_by(Message.created_at.desc())
             .limit(5)
         )
@@ -120,7 +150,7 @@ async def get_pm_dashboard(pm_id: int, db: AsyncSession = Depends(get_db)):
         # ── 5. Recent Projects ──────────────────────
         projs_q = await db.execute(
             select(Project)
-            .where(Project.project_manager_id == pm_id)
+            .where(project_filter)
             .order_by(Project.created_at.desc())
             .limit(4)
         )
