@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form ,BackgroundTasks
+from services.summary_worker import generate_doc_summary
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import datetime, timezone
@@ -89,11 +90,12 @@ async def get_budget(
 # ─────────────────────────────────────────────────────────────────────────────
 @router.post("/{budget_id}/documents")
 async def upload_budget_documents(
-    budget_id:     int,
-    uploaded_by:   int            = Form(...),
-    document_meta: str            = Form(...),   # JSON string
-    files:         List[UploadFile] = File(...),
-    db:            AsyncSession   = Depends(get_db),
+    budget_id: int,
+    uploaded_by: int = Form(...),
+    document_meta: str = Form(...),
+    files: List[UploadFile] = File(...),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
+    db: AsyncSession = Depends(get_db),
 ):
     # ── Validate budget ──
     budget = await db.get(BudgetProposal, budget_id)
@@ -115,9 +117,10 @@ async def upload_budget_documents(
             f"Mismatch: {len(files)} files but {len(meta_list)} metadata entries"
         )
 
-    # ── Upload each file to Drive ──
     uploaded = []
+
     for file, meta in zip(files, meta_list):
+
         file_bytes = await file.read()
         drive_url  = upload_file_to_drive(file_bytes, file.filename)
 
@@ -128,15 +131,28 @@ async def upload_budget_documents(
             file_path      = drive_url,
             uploaded_by    = uploaded_by,
         )
+
         db.add(doc)
+        await db.flush()  # ✅ get ID before commit
+
+        # 🔥 Background summary (NON-BLOCKING)
+        if file.content_type == "application/pdf":
+            background_tasks.add_task(
+                generate_doc_summary,
+                doc.id,
+                file_bytes,
+                file.filename
+            )
+
         uploaded.append(doc)
 
     await db.commit()
+
     for doc in uploaded:
         await db.refresh(doc)
 
     return {
-        "message":            f"{len(uploaded)} document(s) uploaded successfully",
+        "message": f"{len(uploaded)} document(s) uploaded successfully",
         "documents_uploaded": len(uploaded),
     }
 
